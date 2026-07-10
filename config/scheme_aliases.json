@@ -1,0 +1,21 @@
+{
+  "sbi": ["SBI Small Cap Fund"],
+  "hdfc": ["HDFC Small Cap Fund"],
+  "nippon": ["Nippon India Small Cap Fund"],
+  "axis": ["Axis Small Cap Fund"],
+  "kotak": ["Kotak Small Cap Fund"],
+  "icici_prudential": ["ICICI Prudential Smallcap Fund"],
+  "quant": ["Quant Small Cap Fund"],
+  "bandhan": ["Bandhan Small Cap Fund"],
+  "franklin_templeton": ["Franklin India Smaller Companies Fund"],
+  "aditya_birla_sun_life": ["Aditya Birla Sun Life Small Cap Fund"],
+  "canara_robeco": ["Canara Robeco Small Cap Fund"],
+  "tata": ["Tata Small Cap Fund"],
+  "uti": ["UTI Small Cap Fund"],
+  "bank_of_india": ["Bank of India Small Cap Fund"],
+  "invesco": ["Invesco India Smallcap Fund"],
+  "hsbc": ["HSBC Small Cap Fund"],
+  "iti": ["ITI Small Cap Fund"],
+  "sundaram": ["Sundaram Small Cap Fund"],
+  "trust": ["TrustMF Small Cap Fund"]
+}
