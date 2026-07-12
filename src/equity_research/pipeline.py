@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
+from equity_research.config import load_scheme_aliases
+
 
 if __package__ in {None, ""}:
     # Allow running this file directly via `python src/equity_research/pipeline.py`.
@@ -21,7 +24,29 @@ from equity_research.parsers.registry import get_parser
 
 
 def normalize_amc_name(file_path: Path) -> str:
-    return file_path.stem.strip().lower().replace(" ", "_").replace("-", "_")
+    """
+    Infer the AMC name from the filename by searching for any known AMC
+    from scheme_aliases.json.
+
+    Examples:
+        10818f38-bandhan-small-cap-fund-31-may-26.xlsx -> bandhan
+        invesco-india-smallcap-fund_may_2026.xlsx -> invesco
+        sbi_small_cap.xlsx -> sbi
+    """
+
+    normalized = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        file_path.stem.strip().lower(),
+    )
+
+    known_amcs = sorted(load_scheme_aliases().keys(), key=len, reverse=True)
+
+    for amc in known_amcs:
+        if amc in normalized:
+            return amc
+
+    return normalized
 
 
 def discover_month_folders(process_all: bool, month: str | None) -> list[Path]:
@@ -118,4 +143,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

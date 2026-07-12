@@ -15,6 +15,7 @@ COLUMN_SYNONYMS = {
         "security name",
         "instrument",
         "name of instrument",
+        "name of the instrument",
         "name of the instrument issuer",
         "name of security",
         "issuer name",
@@ -26,7 +27,10 @@ COLUMN_SYNONYMS = {
     "market_value": [
         "market value",
         "market value rs. in lakhs",
+        "market value rs in lakhs",
         "market/fair value",
+        "market/fair value (rs. in lakhs)", # Added for Invesco
+        "market/fair value (rs in lakhs)", # Added for Invesco
         "value",
         "value rs",
         "fair value",
@@ -44,8 +48,47 @@ COLUMN_SYNONYMS = {
 }
 
 EQUITY_HINTS = ("equity", "shares", "stock", "listed")
-REST_HINTS = ("cash", "debt", "cblo", "treps", "repo", "futures", "option", "mf unit", "etf")
+REST_HINTS = (
+    "cash",
+    "debt",
+    "cblo",
+    "treps",
+    "repo",
+    "futures",
+    "future ",
+    "option",
+    "mf unit",
+    "etf",
+    "treasury bill",
+    "t bill",
+    "gilt fund",
+    "net current assets",
+    "mutual fund unit",
+)
+NON_EQUITY_SECURITY_HINTS = (
+    "t-bill",
+    "treasury bill",
+    "gilt",
+    "fund",
+    "treps",
+    "repo",
+    "current assets",
+    "index",
+    "underlying",
+    "contract",
+    "contracts",
+    "option",
+    "future",
+    "futures",
+    "nav history",
+    "plan name",
+    "gross notional",
+    "net profit/loss",
+    "total exposure",
+)
+NON_EQUITY_INDUSTRY_HINTS = {"n.a.", "na", "n/a", "sovereign"}
 REST_ISIN = "0000"
+SUMMARY_ROW_NAMES = {"sub total", "total", "grand total"}
 
 
 def canonicalize_column_name(name: str) -> str:
@@ -89,12 +132,20 @@ def coerce_numeric(series: pd.Series) -> pd.Series:
 
 
 def infer_holding_category(row: pd.Series) -> str:
-    combined = " ".join(str(row.get(field, "")).lower() for field in ["industry", "security_name"])
-    if any(token in combined for token in EQUITY_HINTS):
-        return "equity"
+    security_name = str(row.get("security_name", "")).lower()
+    industry = str(row.get("industry", "")).lower()
+    isin = str(row.get("isin", "")).strip().upper()
+    combined = " ".join([industry, security_name])
+
     if any(token in combined for token in REST_HINTS):
         return "rest"
-    if pd.notna(row.get("isin")) and str(row.get("isin")).strip():
+    if any(token in security_name for token in NON_EQUITY_SECURITY_HINTS):
+        return "rest"
+    if industry in NON_EQUITY_INDUSTRY_HINTS:
+        return "rest"
+    if any(token in combined for token in EQUITY_HINTS) and isin.startswith("INE"):
+        return "equity"
+    if isin.startswith("INE"):
         return "equity"
     return "rest"
 
@@ -156,14 +207,33 @@ def normalize_holdings_frame(
     normalized["market_value"] = coerce_numeric(
         normalized.get("market_value", pd.Series(index=normalized.index, dtype="object"))
     )
+    
     normalized["percent_of_aum"] = coerce_numeric(
-        normalized.get("percent_of_aum", pd.Series(index=normalized.index, dtype="object"))
-    )
+    normalized.get("percent_of_aum", pd.Series(index=normalized.index, dtype="object"))
+)
+
+# Some AMCs report % of AUM as fractions (0.064 = 6.4%)
+# while others report actual percentages (6.4 = 6.4%).
+# Detect this at the dataset level and normalize to percentages.
+
+    percent_sum = normalized["percent_of_aum"].fillna(0).sum()
+    if pd.notna(percent_sum) and 0 < percent_sum <= 1.5:
+        normalized["percent_of_aum"] *= 100
+
 
     normalized["security_name"] = normalized["security_name"].astype(str).str.strip()
     normalized["scheme_name"] = normalized["scheme_name"].astype(str).str.strip()
     normalized = normalized[normalized["security_name"].ne("")]
     normalized = normalized[normalized["scheme_name"].ne("")]
+    normalized = normalized[
+        ~normalized["security_name"].str.lower().isin(SUMMARY_ROW_NAMES)
+    ]
+    normalized = normalized[
+        normalized["isin"].fillna("").astype(str).str.strip().ne("")
+        | normalized["quantity"].notna()
+        | normalized["market_value"].notna()
+        | normalized["percent_of_aum"].notna()
+    ]
 
     normalized["year"] = year
     normalized["month"] = month

@@ -25,7 +25,7 @@ class GenericParser(BaseParser):
         if file_path.suffix.lower() == ".csv":
             raw_frame = pd.read_csv(file_path)
             filtered = self._filter_small_cap_rows(raw_frame, aliases_lower)
-            return normalize_holdings_frame(
+            normalized = normalize_holdings_frame(
                 filtered,
                 amc=amc,
                 month_folder=month_folder,
@@ -33,8 +33,9 @@ class GenericParser(BaseParser):
                 parser_name=self.parser_name,
                 default_scheme_name=scheme_aliases[0] if scheme_aliases else None,
             )
+            return self.post_process(normalized)
 
-        workbook = pd.read_excel(file_path, sheet_name=None)
+        workbook = pd.read_excel(file_path, sheet_name=None, header=None)
         candidate_frames: list[pd.DataFrame] = []
         for sheet_name, frame in workbook.items():
             if self._sheet_matches(sheet_name, frame, aliases_lower):
@@ -50,7 +51,7 @@ class GenericParser(BaseParser):
             )
 
         combined = pd.concat(candidate_frames, ignore_index=True)
-        return normalize_holdings_frame(
+        normalized = normalize_holdings_frame(
             combined,
             amc=amc,
             month_folder=month_folder,
@@ -58,6 +59,10 @@ class GenericParser(BaseParser):
             parser_name=self.parser_name,
             default_scheme_name=scheme_aliases[0] if scheme_aliases else None,
         )
+        return self.post_process(normalized)
+
+    def post_process(self, frame: pd.DataFrame) -> pd.DataFrame:
+        return frame
 
     def _sheet_matches(
         self, sheet_name: str, frame: pd.DataFrame, scheme_aliases: list[str]
@@ -71,18 +76,68 @@ class GenericParser(BaseParser):
         return any(alias in sample_text for alias in normalized_aliases)
 
     def _prepare_sheet_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
-        working = frame.copy()
-        working.columns = [str(col) for col in working.columns]
+        working = frame.dropna(axis=1, how="all").copy()
 
         header_row_index = self._find_header_row(working)
         if header_row_index is None:
+            working.columns = [str(col) for col in working.columns]
             return working
 
-        header_values = working.iloc[header_row_index].fillna("").astype(str).tolist()
+        header_values = (
+            working.iloc[header_row_index]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .ffill()
+            .tolist()
+        )
         prepared = working.iloc[header_row_index + 1 :].copy()
         prepared.columns = header_values
         prepared = prepared.dropna(how="all").reset_index(drop=True)
+        prepared.columns = [str(col) for col in prepared.columns]
+        prepared = self._trim_after_grand_total(prepared)
         return prepared
+    
+    def _trim_after_grand_total(self, frame: pd.DataFrame) -> pd.DataFrame:
+    # Nothing to trim if the DataFrame is empty.
+    if frame.empty:
+        return frame
+
+    # Iterate through each row looking for the end of the equity section.
+    for index, row in frame.iterrows():
+
+        # Normalize each cell for reliable comparisons.
+        row_values = [
+            self._normalize_text(value)
+            for value in row.tolist()
+            if pd.notna(value)
+        ]
+
+        # Stop when we reach the equity summary row.
+        # Everything after this (Debt, T-Bills, TREPS, Cash, Notes, etc.)
+        # will be represented by a single REST row.
+        if "grandtotal" in row_values or "total" in row_values:
+            return frame.iloc[:index].reset_index(drop=True)
+
+    # If no summary row is found, return the original DataFrame.
+    return frame
+
+
+    if frame.empty:
+        return frame
+
+    for index, row in frame.iterrows():
+        row_values = [
+            self._normalize_text(value)
+            for value in row.tolist()
+            if pd.notna(value)
+        ]
+
+        if "grandtotal" in row_values or "total" in row_values:
+            return frame.iloc[:index].reset_index(drop=True)
+
+    return frame
 
     def _find_header_row(self, frame: pd.DataFrame) -> int | None:
         header_hints = {
